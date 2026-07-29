@@ -1,5 +1,6 @@
 import os
 import json
+import asyncio
 from typing import Dict, Any
 from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
@@ -11,7 +12,7 @@ app = FastAPI()
 
 # Environment Variables
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-PUBLIC_HOST_URL = os.getenv("PUBLIC_HOST_URL")  # e.g. https://my-data-analyst-bot.onrender.com
+PUBLIC_HOST_URL = os.getenv("PUBLIC_HOST_URL")  # e.g., https://my-data-analyst-bot.onrender.com
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 # Initialize Gemini Client
@@ -28,6 +29,13 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # Multi-turn conversation store: { chat_id: [messages] }
 CHAT_HISTORIES: Dict[int, list] = {}
 
+# Candidate models to attempt in order if one fails or hits rate limits
+MODEL_CANDIDATES = [
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+]
+
 def append_to_log(chat_id: int, user_prompt: str, answer: Any):
     """Appends execution trace to public JSONL log file."""
     log_entry = {
@@ -40,7 +48,7 @@ def append_to_log(chat_id: int, user_prompt: str, answer: Any):
         f.write(json.dumps(log_entry) + "\n")
 
 async def solve_data_question(chat_id: int, conversation_history: list) -> tuple[Any, list]:
-    """Uses Gemini 2.5 Flash to solve data analysis questions and return parsed output."""
+    """Uses Gemini API with automatic model fallback and retries to solve data tasks."""
     steps = []
     latest_message = conversation_history[-1]
     steps.append({"step": "receive_message", "content": latest_message})
@@ -48,12 +56,12 @@ async def solve_data_question(chat_id: int, conversation_history: list) -> tuple
     if not client:
         return {"error": "GEMINI_API_KEY environment variable is missing"}, steps
 
-    # System instruction guiding Gemini to output exact requested JSON format
+    # Prompt forcing model to generate JSON output adhering to user request
     prompt = f"""
 You are an expert Data Analyst AI agent.
 Solve the following data analysis task or question submitted by the user.
 
-User History:
+Conversation History:
 {json.dumps(conversation_history, indent=2)}
 
 Latest Task:
@@ -61,31 +69,52 @@ Latest Task:
 
 CRITICAL REQUIREMENT:
 The user prompt specifies an exact output JSON structure (e.g. key-value pairs under 'answer').
-Compute or extract the answer and respond ONLY with a valid JSON object.
+Compute or extract the answer and respond ONLY with a valid JSON object matching the requested schema.
+Do NOT surround your output with markdown code blocks like ```json ... ```. Output raw JSON only.
 """
 
-    try:
-        response = client.models.generate_content(
-            model='gemini-2.0-flash',
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-            ),
-        )
-        
-        raw_output = response.text
-        steps.append({"step": "llm_response", "content": raw_output})
-        
-        parsed_json = json.loads(raw_output)
-        # If model wrapped it inside "answer", extract it to match exact requested shape
-        if isinstance(parsed_json, dict) and "answer" in parsed_json:
-            answer = parsed_json["answer"]
-        else:
-            answer = parsed_json
-            
-    except Exception as e:
-        print(f"Error calling Gemini API: {e}")
-        answer = {"error": str(e)}
+    answer = None
+
+    # Try each model candidate with automatic retries on 429 quota limits
+    for model_name in MODEL_CANDIDATES:
+        for attempt in range(2):  # Try twice per model
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                    ),
+                )
+                
+                raw_output = response.text
+                steps.append({"step": "llm_response", "model": model_name, "content": raw_output})
+                
+                parsed_json = json.loads(raw_output)
+                
+                # Extract inner answer if model wrapped it in an outer {"answer": ...} key
+                if isinstance(parsed_json, dict) and "answer" in parsed_json:
+                    answer = parsed_json["answer"]
+                else:
+                    answer = parsed_json
+                
+                return answer, steps  # Success!
+
+            except Exception as e:
+                err_msg = str(e)
+                print(f"Error on model {model_name} (Attempt {attempt+1}): {err_msg}")
+                
+                # If rate-limited (429), pause briefly before retrying
+                if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
+                    await asyncio.sleep(4)
+                    continue
+                # If model not found (404), break loop to move to next model candidate
+                elif "404" in err_msg or "NOT_FOUND" in err_msg:
+                    break
+
+    # Final fallback if all API calls failed
+    if answer is None:
+        answer = {"error": "All AI model attempts timed out or exceeded quota. Please retry."}
 
     return answer, steps
 
@@ -101,32 +130,32 @@ async def telegram_webhook(request: Request):
         chat_id = message["chat"]["id"]
         text = message["text"]
 
-        # Maintain multi-turn message history per chat
+        # Maintain multi-turn history per chat
         if chat_id not in CHAT_HISTORIES:
             CHAT_HISTORIES[chat_id] = []
         CHAT_HISTORIES[chat_id].append(text)
 
-        # Handle simple bot command
+        # Handle start command
         if text.strip() == "/start":
             reply_text = "Bot is online and ready for data analysis tasks!"
         else:
             # Solve data analysis problem
             answer, steps = await solve_data_question(chat_id, CHAT_HISTORIES[chat_id])
 
-            # Write to JSONL log
+            # Append to log file
             append_to_log(chat_id, text, answer)
             
             # Construct log URL for evaluator download
             log_url = f"{PUBLIC_HOST_URL}/run.jsonl"
 
-            # Strict required response payload
+            # Required final response JSON schema
             final_payload = {
                 "answer": answer,
                 "log_url": log_url
             }
             reply_text = json.dumps(final_payload)
 
-        # Send HTTP POST reply to Telegram API
+        # Send response message back to Telegram API
         async with httpx.AsyncClient() as http_client:
             await http_client.post(
                 f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
@@ -138,7 +167,7 @@ async def telegram_webhook(request: Request):
             )
 
     except Exception as e:
-        print(f"Error handling Telegram update: {e}")
+        print(f"Error processing Telegram update: {e}")
 
     return Response(status_code=200)
 
