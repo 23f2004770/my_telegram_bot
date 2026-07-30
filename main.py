@@ -9,7 +9,7 @@ from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filte
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 PUBLIC_HOST_URL = os.getenv("PUBLIC_HOST_URL")  # e.g., https://my-data-analyst-bot.onrender.com
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-# -------------------------------------------
+
 
 # Point the OpenAI client to Gemini's compatibility endpoint
 client = OpenAI(
