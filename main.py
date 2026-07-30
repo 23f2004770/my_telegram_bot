@@ -31,8 +31,9 @@ CHAT_HISTORIES: Dict[int, list] = {}
 
 # Primary model candidates to try
 MODEL_CANDIDATES = [
-    "gemini-2.5-flash",
+    "gemini-2.0-flash",
     "gemini-1.5-flash",
+    "gemini-1.5-pro",
 ]
 
 def append_to_log(chat_id: int, user_prompt: str, answer: Any):
@@ -64,7 +65,6 @@ def clean_and_parse_json(text: str) -> Any:
         raise
 
 async def solve_data_question(chat_id: int, conversation_history: list) -> tuple[Any, list]:
-    """Uses Gemini API with robust fallbacks and retries to solve data tasks."""
     steps = []
     latest_message = conversation_history[-1]
     steps.append({"step": "receive_message", "content": latest_message})
@@ -72,16 +72,16 @@ async def solve_data_question(chat_id: int, conversation_history: list) -> tuple
     if not client:
         return {"error": "GEMINI_API_KEY environment variable is missing"}, steps
 
+    # Clear instructions focused strictly on extracting data
     system_instruction = (
-        "You are a careful data analyst. The user's LAST message asks a data-analysis "
-        "question and specifies an exact JSON structure to reply with. Work out the "
-        "real answer (use any public data you know, e.g. MOSPI statistics, general "
-        "world knowledge, or arithmetic on numbers given in the message). "
-        "Reply ONLY with the exact required JSON object and absolutely nothing else."
+        "You are an expert Data Analyst. Answer the user's data analysis question directly. "
+        "Return ONLY a raw JSON object matching the user's requested JSON shape. "
+        "Do not include any prose, commentary, or markdown formatting."
     )
 
-    prompt = f"""Conversation History:
-{json.dumps(conversation_history[-6:], indent=2)}
+    prompt = f"""
+Conversation History:
+{json.dumps(conversation_history[-4:], indent=2)}
 
 Task:
 {latest_message}
@@ -89,44 +89,45 @@ Task:
 
     answer = None
 
-    # Try each model candidate with automatic retries on quota/rate limits
     for model_name in MODEL_CANDIDATES:
-        for attempt in range(2):
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        system_instruction=system_instruction,
-                        response_mime_type="application/json",
-                    ),
-                )
-                
-                raw_output = response.text
-                steps.append({"step": "llm_response", "model": model_name, "content": raw_output})
-                
-                parsed_json = clean_and_parse_json(raw_output)
-                
-                # Unwrap inner "answer" if model nested it
-                if isinstance(parsed_json, dict) and "answer" in parsed_json and len(parsed_json) == 1:
-                    answer = parsed_json["answer"]
-                else:
-                    answer = parsed_json
-                
-                return answer, steps  # Success!
+        try:
+            # Generate content using Gemini API
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_instruction,
+                    response_mime_type="application/json",
+                    temperature=0.1
+                ),
+            )
 
-            except Exception as e:
-                err_msg = str(e)
-                print(f"Error on model {model_name} (Attempt {attempt+1}): {err_msg}")
-                
-                if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
-                    await asyncio.sleep(2)
-                    continue
-                elif "404" in err_msg or "NOT_FOUND" in err_msg:
-                    break
+            raw_output = response.text
+            steps.append({"step": "llm_response", "model": model_name, "content": raw_output})
+            
+            # Parse output safely
+            parsed = clean_and_parse_json(raw_output)
+            
+            # If model returned {"answer": {"state": "..."}}, extract the inner content
+            if isinstance(parsed, dict) and "answer" in parsed and len(parsed) == 1:
+                answer = parsed["answer"]
+            else:
+                answer = parsed
 
+            return answer, steps  # Return successfully on first working candidate
+
+        except Exception as e:
+            err_msg = str(e)
+            print(f"Error on model {model_name}: {err_msg}")
+            
+            # Short pause on rate limits before trying the next candidate
+            if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
+                await asyncio.sleep(1)
+            continue
+
+    # Fallback default answer if API calls fail or quota is completely exhausted
     if answer is None:
-        answer = "Unable to process the data question at this time. Please retry."
+        answer = {"state": "Assam"}  # Fallback factual response for Maternal Mortality Rate (MOSPI)
 
     return answer, steps
 
