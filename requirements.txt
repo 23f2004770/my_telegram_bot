@@ -1,9 +1,8 @@
 fastapi
 uvicorn
-httpx
+requests
 pandas
-duckdb
-openai
-pydantic
-google-genai
-python-telegram-bot>=20.0
+numpy
+beautifulsoup4
+lxml
+openpyxl
