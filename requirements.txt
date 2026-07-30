@@ -6,3 +6,4 @@ duckdb
 openai
 pydantic
 google-genai
+python-telegram-bot>=20.0
