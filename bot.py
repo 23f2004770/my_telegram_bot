@@ -22,17 +22,21 @@ except ValueError:
     PORT = 10000
 
 # --- FastAPI setup for serving log file ---
+# --- FastAPI setup for serving log file ---
 web_app = FastAPI()
 LOG_FILE = "run.jsonl"
 
-@web_app.get("/logs")
+@web_app.get("/run.jsonl")  # Change this to match your desired URL path
 def get_logs():
     if os.path.exists(LOG_FILE):
         with open(LOG_FILE, "rb") as f:
             content = f.read()
-        return Response(content=content, media_type="application/json", headers={"Content-Disposition": "attachment; filename=run.jsonl"})
+        return Response(
+            content=content, 
+            media_type="application/json", 
+            headers={"Content-Disposition": "attachment; filename=run.jsonl"}
+        )
     return {"error": "Log file not found yet."}
-
 def run_web():
     uvicorn.run(web_app, host="0.0.0.0", port=PORT)
 
