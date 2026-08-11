@@ -11,8 +11,15 @@ from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filte
 # --- Environment Variables ---
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 AIPIPE_TOKEN = os.environ["AIPIPE_TOKEN"]
-LOG_URL = os.environ.get("LOG_URL", "https://your-render-app.onrender.com/logs")
-PORT = int(os.environ.get("PORT", 10000))
+
+LOG_URL = os.environ.get("LOG_URL", "https://my-telegram-bot-1-hszi.onrender.com/logs")
+
+# Safely extract port numbers even if a full URL was accidentally passed
+raw_port = os.environ.get("PORT", "10000")
+try:
+    PORT = int(raw_port)
+except ValueError:
+    PORT = 10000
 
 # --- FastAPI setup for serving log file ---
 web_app = FastAPI()
