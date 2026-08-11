@@ -7,3 +7,4 @@ beautifulsoup4
 lxml
 openpyxl
 openai
+python-telegram-bot
