@@ -12,7 +12,8 @@ from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filte
 # --- Environment Variables ---
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 AIPIPE_TOKEN = os.environ["AIPIPE_TOKEN"]
-LOG_URL = os.environ.get["LOG_URL"]
+# Change the fallback URL to your current active one
+LOG_URL = os.environ.get("LOG_URL", "https://my-telegram-bot-1-hszi.onrender.com/run.jsonl")
 
 raw_port = os.environ.get("PORT", "10000")
 try:
