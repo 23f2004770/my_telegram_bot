@@ -12,7 +12,7 @@ from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filte
 # --- Environment Variables ---
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 AIPIPE_TOKEN = os.environ["AIPIPE_TOKEN"]
-LOG_URL = os.environ.get("LOG_URL", "https://my-telegram-bot-ms3n.onrender.com/run.jsonl")
+LOG_URL = os.environ.get["LOG_URL"]
 
 raw_port = os.environ.get("PORT", "10000")
 try:
