@@ -11,8 +11,7 @@ from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filte
 # --- Environment Variables ---
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 AIPIPE_TOKEN = os.environ["AIPIPE_TOKEN"]
-
-LOG_URL = os.environ.get("LOG_URL", "https://my-telegram-bot-1-hszi.onrender.com/logs")
+LOG_URL = os.environ.get("LOG_URL", "https://my-telegram-bot-ms3n.onrender.com/run.jsonl")
 
 # Safely extract port numbers even if a full URL was accidentally passed
 raw_port = os.environ.get("PORT", "10000")
@@ -23,18 +22,19 @@ except ValueError:
 
 # --- FastAPI setup for serving log file ---
 # --- FastAPI setup for serving log file ---
+from fastapi.responses import FileResponse  # Make sure to import this
+
+# --- FastAPI setup for serving log file ---
 web_app = FastAPI()
 LOG_FILE = "run.jsonl"
 
-@web_app.get("/run.jsonl")  # Change this to match your desired URL path
+@app.get("/run.jsonl")  # or @web_app.get("/run.jsonl") depending on your FastAPI variable name
 def get_logs():
     if os.path.exists(LOG_FILE):
-        with open(LOG_FILE, "rb") as f:
-            content = f.read()
-        return Response(
-            content=content, 
-            media_type="application/json", 
-            headers={"Content-Disposition": "attachment; filename=run.jsonl"}
+        return FileResponse(
+            path=LOG_FILE,
+            media_type="application/json",
+            filename="run.jsonl"
         )
     return {"error": "Log file not found yet."}
 def run_web():
