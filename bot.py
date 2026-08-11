@@ -1,19 +1,16 @@
+import os
 import json
 import time
-import os
 import threading
-from fastapi import FastAPI, Response
+from fastapi import FastAPI
+from fastapi.responses import FileResponse
 import uvicorn
-from openai import OpenAI
-from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
 
 # --- Environment Variables ---
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 AIPIPE_TOKEN = os.environ["AIPIPE_TOKEN"]
 LOG_URL = os.environ.get("LOG_URL", "https://my-telegram-bot-ms3n.onrender.com/run.jsonl")
 
-# Safely extract port numbers even if a full URL was accidentally passed
 raw_port = os.environ.get("PORT", "10000")
 try:
     PORT = int(raw_port)
@@ -21,14 +18,10 @@ except ValueError:
     PORT = 10000
 
 # --- FastAPI setup for serving log file ---
-# --- FastAPI setup for serving log file ---
-from fastapi.responses import FileResponse  # Make sure to import this
-
-# --- FastAPI setup for serving log file ---
 web_app = FastAPI()
 LOG_FILE = "run.jsonl"
 
-@app.get("/run.jsonl")  # or @web_app.get("/run.jsonl") depending on your FastAPI variable name
+@web_app.get("/run.jsonl")
 def get_logs():
     if os.path.exists(LOG_FILE):
         return FileResponse(
@@ -37,9 +30,9 @@ def get_logs():
             filename="run.jsonl"
         )
     return {"error": "Log file not found yet."}
+
 def run_web():
     uvicorn.run(web_app, host="0.0.0.0", port=PORT)
-
 # --- Telegram Bot Setup ---
 client = OpenAI(base_url="https://aipipe.org/openai/v1", api_key=AIPIPE_TOKEN)
 conversation_history = {}
