@@ -1,10 +1,13 @@
-import os
 import json
 import time
+import os
 import threading
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 import uvicorn
+from openai import OpenAI
+from telegram import Update
+from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
 
 # --- Environment Variables ---
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
@@ -33,6 +36,7 @@ def get_logs():
 
 def run_web():
     uvicorn.run(web_app, host="0.0.0.0", port=PORT)
+
 # --- Telegram Bot Setup ---
 client = OpenAI(base_url="https://aipipe.org/openai/v1", api_key=AIPIPE_TOKEN)
 conversation_history = {}
@@ -45,8 +49,7 @@ def log_event(event: dict):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     user_text = update.message.text
-    log_exit = {"type": "incoming", "chat_id": chat_id, "text": user_text}
-    log_event(log_exit)
+    log_event({"type": "incoming", "chat_id": chat_id, "text": user_text})
 
     history = conversation_history.setdefault(chat_id, [])
     history.append({"role": "user", "content": user_text})
@@ -70,7 +73,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         start, end = reply_text.find("{"), reply_text.rfind("}")
         parsed = json.loads(reply_text[start:end + 1])
     
-    # Ensure parsed is a dictionary before item assignment
     if isinstance(parsed, dict):
         parsed["log_url"] = LOG_URL
         final_reply = json.dumps(parsed)
